@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
 set -o pipefail
+set -x  # 开启调试模式，输出执行过程
 
 # 颜色定义
 RED='\033[0;31m'
@@ -39,7 +40,7 @@ log_error() {
 
 # 依赖检查函数
 check_command() {
-  if ! command -v "$1" &>/dev/null; then
+  if ! command -v "$1" >/dev/null 2>&1; then
     log_error "缺少依赖：$1，请先安装 $1。"
     exit 1
   fi
@@ -53,10 +54,10 @@ check_command systemctl
 
 # 获取操作系统发行版信息，并设置防火墙配置文件路径
 get_os_info() {
-  if command -v apt-get &>/dev/null; then
+  if command -v apt-get >/dev/null 2>&1; then
     OS_DISTRIBUTION="debian"
     FIREWALL_CONFIG_FILE="/etc/iptables/rules.v4"  # Debian/Ubuntu
-  elif command -v yum &>/dev/null || command -v dnf &>/dev/null; then
+  elif command -v yum >/dev/null 2>&1 || command -v dnf >/dev/null 2>&1; then
     OS_DISTRIBUTION="redhat"
     FIREWALL_CONFIG_FILE="/etc/sysconfig/iptables"  # CentOS/RHEL
   else
@@ -79,18 +80,18 @@ persist_firewall_rules() {
   log_info "正在持久化防火墙规则..."
   if systemctl is-active --quiet firewalld; then
     if [[ -n "$MONITOR_IP" ]]; then
-      firewall-cmd --permanent --add-rich-rule="rule family='ipv4' source address='$MONITOR_IP' port port='9100' protocol='tcp' accept" &>/dev/null
+      firewall-cmd --permanent --add-rich-rule="rule family='ipv4' source address='$MONITOR_IP' port port='9100' protocol='tcp' accept"
     fi
-    firewall-cmd --reload &>/dev/null
+    firewall-cmd --reload
   elif [[ "$OS_DISTRIBUTION" == "debian" ]]; then
-    apt-get update &>/dev/null
-    apt-get install -y iptables-persistent &>/dev/null
-    netfilter-persistent save &>/dev/null
+    apt-get update
+    apt-get install -y iptables-persistent
+    netfilter-persistent save
   elif [[ "$OS_DISTRIBUTION" == "redhat" ]]; then
-    yum install -y iptables-services &>/dev/null || dnf install -y iptables-services &>/dev/null
+    yum install -y iptables-services || dnf install -y iptables-services
     iptables-save > "$FIREWALL_CONFIG_FILE"
-    systemctl enable iptables &>/dev/null || true
-    systemctl enable iptables.service &>/dev/null || true
+    systemctl enable iptables || true
+    systemctl enable iptables.service || true
   else
     log_warn "未知的操作系统，无法自动持久化防火墙规则，请手动保存。"
     log_warn "请参考您的系统文档，手动保存 iptables 规则。"
@@ -102,15 +103,15 @@ persist_firewall_rules() {
 uninstall_firewall_rules() {
   log_warn "正在撤销防火墙规则..."
   if [[ -n "$MONITOR_IP" ]]; then
-    iptables -D INPUT -p tcp --dport 9100 -s "$MONITOR_IP" -j ACCEPT &>/dev/null || true
+    iptables -D INPUT -p tcp --dport 9100 -s "$MONITOR_IP" -j ACCEPT || true
   fi
-  iptables -D INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT &>/dev/null || true
+  iptables -D INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT || true
 
   if [[ -f "${FIREWALL_CONFIG_FILE}.bak" ]]; then
     cp "${FIREWALL_CONFIG_FILE}.bak" "$FIREWALL_CONFIG_FILE"
     log_info "防火墙规则已恢复备份。"
     if systemctl is-active --quiet firewalld; then
-      firewall-cmd --reload &>/dev/null
+      firewall-cmd --reload
     else
       persist_firewall_rules
     fi
@@ -122,8 +123,8 @@ uninstall_firewall_rules() {
 # 卸载 Node Exporter 函数
 uninstall_node_exporter() {
   log_warn "正在卸载 Node Exporter..."
-  systemctl stop node_exporter &>/dev/null || true
-  systemctl disable node_exporter &>/dev/null || true
+  systemctl stop node_exporter || true
+  systemctl disable node_exporter || true
   rm -f "$NODE_EXPORTER_BIN"
   rm -f "$SERVICE_FILE"
   uninstall_firewall_rules
@@ -133,7 +134,7 @@ uninstall_node_exporter() {
 }
 
 # 检测是否已安装 Node Exporter，若已安装提示是否卸载
-if pgrep -x "node_exporter" >/dev/null; then
+if pgrep -x "node_exporter" >/dev/null 2>&1; then
   log_warn "检测到 Node Exporter 已安装！"
   read -p "是否要卸载？(y/N): " REMOVE
   if [[ "$REMOVE" =~ ^[Yy]$ ]]; then
@@ -195,8 +196,8 @@ systemctl start node_exporter
 # 配置防火墙规则
 log_info "正在配置防火墙规则..."
 if systemctl is-active --quiet firewalld; then
-  firewall-cmd --permanent --add-rich-rule="rule family='ipv4' source address='$MONITOR_IP' port port='9100' protocol='tcp' accept" &>/dev/null
-  firewall-cmd --reload &>/dev/null
+  firewall-cmd --permanent --add-rich-rule="rule family='ipv4' source address='$MONITOR_IP' port port='9100' protocol='tcp' accept"
+  firewall-cmd --reload
 else
   iptables -A INPUT -p tcp --dport 9100 -s "$MONITOR_IP" -j ACCEPT
   iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
@@ -206,7 +207,7 @@ log_info "防火墙规则已应用！"
 persist_firewall_rules
 
 # 检查 Node Exporter 是否运行成功
-if pgrep -x "node_exporter" >/dev/null; then
+if pgrep -x "node_exporter" >/dev/null 2>&1; then
   log_info "Node Exporter 安装并运行成功！"
   echo -e "你可以在 Prometheus 配置中添加："
   echo -e "${YELLOW}  - targets: [\"$HOSTNAME:9100\"]${NC}"
