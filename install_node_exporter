@@ -84,6 +84,10 @@ persist_firewall_rules() {
     fi
     firewall-cmd --reload
   elif [[ "$OS_DISTRIBUTION" == "debian" ]]; then
+    # 设置非交互模式并预设答案，防止进入配置界面
+    export DEBIAN_FRONTEND=noninteractive
+    echo "iptables-persistent iptables-persistent/autosave_v4 boolean true" | debconf-set-selections
+    echo "iptables-persistent iptables-persistent/autosave_v6 boolean true" | debconf-set-selections
     apt-get update
     apt-get install -y iptables-persistent
     netfilter-persistent save
