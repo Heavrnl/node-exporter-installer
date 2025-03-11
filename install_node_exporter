@@ -1,0 +1,84 @@
+#!/bin/bash
+
+set -e
+
+NODE_EXPORTER_VERSION="1.3.1"
+NODE_EXPORTER_DIR="/usr/local/bin/node_exporter"
+SERVICE_FILE="/etc/systemd/system/node_exporter.service"
+
+# 颜色定义
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m' # No Color
+
+# 检查是否已安装
+if pgrep -x "node_exporter" >/dev/null; then
+    echo -e "${YELLOW}检测到 Node Exporter 已安装！${NC}"
+    read -p "是否要卸载？(y/N): " REMOVE
+    if [[ "$REMOVE" =~ ^[Yy]$ ]]; then
+        echo -e "${RED}正在卸载 Node Exporter...${NC}"
+        sudo systemctl stop node_exporter
+        sudo systemctl disable node_exporter
+        sudo rm -f "$NODE_EXPORTER_DIR"
+        sudo rm -f "$SERVICE_FILE"
+        sudo systemctl daemon-reload
+        echo -e "${GREEN}Node Exporter 已成功卸载！${NC}"
+        exit 0
+    else
+        echo -e "${GREEN}跳过卸载，脚本退出。${NC}"
+        exit 0
+    fi
+fi
+
+# 获取监控服务器 IP
+read -p "请输入 Prometheus 监控服务器的 IP: " MONITOR_IP
+
+if [[ -z "$MONITOR_IP" ]]; then
+    echo -e "${RED}IP 不能为空！${NC}"
+    exit 1
+fi
+
+# 下载并安装 Node Exporter
+echo -e "${GREEN}正在安装 Node Exporter v$NODE_EXPORTER_VERSION...${NC}"
+wget -qO- "https://github.com/prometheus/node_exporter/releases/download/v$NODE_EXPORTER_VERSION/node_exporter-$NODE_EXPORTER_VERSION.linux-amd64.tar.gz" | tar xz
+sudo mv "node_exporter-$NODE_EXPORTER_VERSION.linux-amd64/node_exporter" /usr/local/bin/node_exporter
+rm -rf "node_exporter-$NODE_EXPORTER_VERSION.linux-amd64"
+
+# 创建 systemd 服务
+echo -e "${GREEN}配置 systemd 服务...${NC}"
+cat <<EOF | sudo tee "$SERVICE_FILE"
+[Unit]
+Description=Prometheus Node Exporter
+After=network.target
+
+[Service]
+User=nobody
+ExecStart=/usr/local/bin/node_exporter
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# 重新加载 systemd 并启动服务
+sudo systemctl daemon-reload
+sudo systemctl enable node_exporter
+sudo systemctl start node_exporter
+
+# 配置防火墙规则
+echo -e "${GREEN}正在配置防火墙规则...${NC}"
+sudo iptables -A INPUT -p tcp --dport 9100 -s "$MONITOR_IP" -j ACCEPT
+sudo iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+echo -e "${GREEN}防火墙规则已应用！${NC}"
+
+# 检查是否运行成功
+if pgrep -x "node_exporter" >/dev/null; then
+    echo -e "${GREEN}Node Exporter 安装并运行成功！${NC}"
+    echo -e "你可以在 Prometheus 配置中添加："
+    echo -e "${YELLOW}  - targets: [\"$HOSTNAME:9100\"]${NC}"
+else
+    echo -e "${RED}Node Exporter 运行失败，请检查日志！${NC}"
+    journalctl -u node_exporter --no-pager --lines=20
+    exit 1
+fi
