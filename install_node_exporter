@@ -213,8 +213,6 @@ persist_firewall_rules
 # 检查 Node Exporter 是否运行成功
 if pgrep -x "node_exporter" >/dev/null 2>&1; then
   log_info "Node Exporter 安装并运行成功！"
-  echo -e "你可以在 Prometheus 配置中添加："
-  echo -e "${YELLOW}  - targets: [\"$HOSTNAME:9100\"]${NC}"
 else
   log_error "Node Exporter 运行失败，请检查日志！"
   journalctl -u node_exporter --no-pager --lines=20
