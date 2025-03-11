@@ -20,11 +20,13 @@ fi
 
 echo "正在更新配置文件 $CONFIG_FILE ..."
 
-# 使用 sed 在第一处出现 static_configs: 后追加新条目
-sed -i "/static_configs:/a\\
+# 使用 sed 在 'scrape_configs:' 下的 'static_configs:' 处追加新条目
+sed -i '/scrape_configs:/,/static_configs:/{
+    /static_configs:/a\\
       - targets: ['$FULL_TARGET']\\
         labels:\\
-          instance: \"$INSTANCE_NAME\"" "$CONFIG_FILE"
+          instance: "$INSTANCE_NAME"
+}' "$CONFIG_FILE"
 
 echo "配置文件更新完成，正在重启 Prometheus 服务..."
 
