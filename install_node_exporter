@@ -197,20 +197,21 @@ systemctl enable node_exporter
 systemctl start node_exporter
 
 # 配置防火墙规则
-log_info "正在配置防火墙规则..."
+echo "正在配置防火墙规则..."
 if systemctl is-active --quiet firewalld; then
+  # 使用 firewalld 配置规则
   firewall-cmd --permanent --add-rich-rule="rule family='ipv4' source address='$MONITOR_IP' port port='9100' protocol='tcp' accept"
-  firewall-cmd --permanent --add-port=9100/tcp --zone=public --remove-port=9100/tcp  # 拒绝其他访问
+  firewall-cmd --permanent --add-rich-rule="rule family='ipv4' source address='127.0.0.1' port port='9100' protocol='tcp' accept"
   firewall-cmd --reload
+  echo "firewalld 规则已应用！"
 else
-  # 允许 Prometheus 服务器访问 9100 端口
+  # 使用 iptables 配置规则
   iptables -A INPUT -p tcp --dport 9100 -s "$MONITOR_IP" -j ACCEPT
-  # 允许已建立和相关连接的流量
+  iptables -A INPUT -p tcp --dport 9100 -s 127.0.0.1 -j ACCEPT
   iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-  # 拒绝所有其他 IP 访问 9100 端口
   iptables -A INPUT -p tcp --dport 9100 -j REJECT
+  echo "iptables 规则已应用！"
 fi
-log_info "防火墙规则已应用！"
 
 # 持久化防火墙规则
 persist_firewall_rules
