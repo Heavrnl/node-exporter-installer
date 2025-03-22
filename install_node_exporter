@@ -153,16 +153,62 @@ uninstall_node_exporter() {
   exit 0
 }
 
+# 更换监控服务器 IP 地址函数
+change_monitor_ip() {
+  local new_monitor_ip=$1
+  
+  log_warn "正在更换监控服务器 IP 地址..."
+  
+  # 删除旧的防火墙规则
+  uninstall_firewall_rules
+  
+  # 创建防火墙规则文件（如果不存在）
+  touch "$FIREWALL_RULES_FILE"
+  
+  # 添加新的防火墙规则
+  if systemctl is-active --quiet firewalld; then
+    add_firewall_rule "firewalld" "--add-rich-rule='rule family=\"ipv4\" source address=\"127.0.0.1\" port port=\"9100\" protocol=\"tcp\" accept'"
+    add_firewall_rule "firewalld" "--add-rich-rule='rule family=\"ipv4\" source address=\"$new_monitor_ip\" port port=\"9100\" protocol=\"tcp\" accept'"
+  else
+    add_firewall_rule "iptables" -A INPUT -p tcp --dport 9100 -s 127.0.0.1 -j ACCEPT
+    add_firewall_rule "iptables" -A INPUT -p tcp --dport 9100 -s "$new_monitor_ip" -j ACCEPT
+    add_firewall_rule "iptables" -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+    add_firewall_rule "iptables" -A INPUT -p tcp --dport 9100 -j REJECT
+  fi
+  
+  # 持久化防火墙规则
+  persist_firewall_rules
+  
+  log_info "监控服务器 IP 地址已成功更换为 $new_monitor_ip！"
+}
+
 # 检测是否已安装 Node Exporter
 if pgrep -x "node_exporter" >/dev/null 2>&1; then
   log_warn "检测到 Node Exporter 已安装！"
-  read -p "是否要卸载？(y/N): " REMOVE
-  if [[ "$REMOVE" =~ ^[Yy]$ ]]; then
-    uninstall_node_exporter
-  else
-    log_info "跳过卸载，脚本退出。"
-    exit 0
-  fi
+  echo "请选择操作："
+  echo "1) 卸载 Node Exporter"
+  echo "2) 更换监控服务器 IP 地址"
+  echo "3) 退出脚本"
+  read -p "请输入选项 (1/2/3): " CHOICE
+  
+  case $CHOICE in
+    1)
+      uninstall_node_exporter
+      ;;
+    2)
+      read -p "请输入新的 Prometheus 监控服务器 IP: " NEW_MONITOR_IP
+      if [[ -z "$NEW_MONITOR_IP" ]]; then
+        log_error "IP 不能为空！"
+        exit 1
+      fi
+      change_monitor_ip "$NEW_MONITOR_IP"
+      exit 0
+      ;;
+    3|*)
+      log_info "退出脚本。"
+      exit 0
+      ;;
+  esac
 fi
 
 # 获取监控服务器 IP
